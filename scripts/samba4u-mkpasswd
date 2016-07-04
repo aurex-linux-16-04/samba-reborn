@@ -1,8 +1,7 @@
 #!/usr/bin/env python
-         import base64
-         import binascii
-         import sys
-         ldap_samba_nt_password = sys.argv[1]
-         b64_hash = base64.b64encode(binascii.a2b_hex(ldap_samba_nt_password))
-         print b64_hash
-
+import base64
+import binascii
+import sys
+ldap_samba_nt_password = sys.argv[1]
+b64_hash = base64.b64encode(binascii.a2b_hex(ldap_samba_nt_password))
+print b64_hash
