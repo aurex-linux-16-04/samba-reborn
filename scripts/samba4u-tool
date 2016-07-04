@@ -15,7 +15,7 @@ S4_USER_DN=""
 CFG_FILE="samba4u.cfg"
 
 [ -r "$CFG_FILE" ] || exit 100
-. $CFG_FILE
+. "./$CFG_FILE"
 
 
 GROUPS_LOG="$(tempfile)"
@@ -68,9 +68,8 @@ s4group_add(){
 	if ! ldbsearch -H "/var/lib/samba/private/sam.ldb" --controls "search_options:0:1" -b $S4_BASE_DN "cn=$group_name" gidNumber | grep -q "^gidNumber:" ; then
 		gid="$(group_get_gid "$group_name")"
 		group_dn="$(ldbsearch -H "/var/lib/samba/private/sam.ldb" -b $S4_BASE_DN "(&(cn=$group_name)(objectclass=group))" dn |sed -ne "/^dn:/s%^dn: %%p")"
-		echo "DN>>>>>>>>$group_name<<<<<<<<<<<<<<<<<<"
 		tmpfile="$(tempfile)"
-		cat << EOF |tee  $tmpfile
+		cat << EOF > $tmpfile
 dn: $group_dn
 changetype: modify
 add:objectclass
