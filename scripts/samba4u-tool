@@ -117,6 +117,7 @@ s4user_add (){
 		return 1
 	fi
 	rc=0
+	tmpfile="$(tempfile)"
 	if ! ldbsearch -H "/var/lib/samba/private/sam.ldb" --controls "search_options:0:1" -b $S4_BASE_DN "cn=$user_name" uidNumber  | grep -q "^uidNumber:" ; then
 		uidNumber="$(user_get_attr "$user_name" "uidNumber")"
 		gidNumber="$(user_get_attr "$user_name" "gidNumber")"
@@ -124,7 +125,6 @@ s4user_add (){
 		employeeNumber="$(user_get_attr "$user_name" "employeeNumber")"
 		# establecer primarygroup
 		groupid="$(gid_get_groupid $gidNumber)"
-		tmpfile="$(tempfile)"
 		if [ "$uidNumber" ] ; then
 			cat << EOF > $tmpfile
 dn: cn=$user_name,$S4_USER_DN
@@ -158,7 +158,10 @@ EOF
 		fi
 		ldbmodify --url=/var/lib/samba/private/sam.ldb -b $S4_BASE_DN $tmpfile >/dev/null || rc=2
 		rm -f "$tmpfile"
+	else
+		gidNumber="$(user_get_attr "$user_name" "gidNumber")"
 	fi
+
 	[ $rc -eq 0 ] || return $rc
 
 	# Añade usuario a su grupo principal en Windows 
@@ -190,17 +193,22 @@ s4add_members(){
 	group_name="$1"
 	rc=0
 	tmpfile="$(tempfile)"
-	echo $USERS_BLOCKED |sed -e "s%^:%%;s%:$%%"|tr ":" "\n" > $tmpfile
+	echo -n $USERS_BLOCKED |sed -e "s%^:%%;s%:$%%"|tr ":" "\n" > $tmpfile
 
 	user_list="$(group_get_attr "$group_name" memberUid | grep -vFf $tmpfile |tr "\n" ","| sed s%,$%%)"
-	samba-tool group addmembers "$group_name" "$user_list" || rc=$?
-	rm -f $tmpfile
+	if [ "$user_list" ] ; then
+		samba-tool group addmembers "$group_name" "$user_list" || rc=$?
+	else
+		rc=1
+	fi
+		rm -f $tmpfile
 	return $rc
 }
 
 
 # main program
 # Add groups old ldap groups to s4
+if false; then
 group_list | while read g; do
 	if ! echo "$GROUPS_BLOCKED" | grep -q ":$g:" ; then
 		rc=0
@@ -213,6 +221,8 @@ group_list | while read g; do
 		fi
 	fi
 done
+fi
+
 # Add users from old ldap to s4
 user_list | while read u; do
 	if ! echo "$USERS_BLOCKED" | grep -q ":$u:" ; then
@@ -226,14 +236,22 @@ user_list | while read u; do
 		fi
 	fi
 done
+
 # Add group members to s4 
 group_list | while read g; do
 	if ! echo "$GROUPS_BLOCKED" | grep -q ":$g:" ; then
-		if s4add_members "$g" ; then
-			echo "Members of $g: added"
-		else
-			echo "==> ERROR adding members of group: $g" >&2
-		fi
+		rc=0
+		s4add_members "$g" || rc=$?
+		case "$rc" in
+			1)
+				echo "No members for $g"
+				;;
+			0)
+				echo "Members of $g: added"
+				;;
+			*)
+				echo "==> ERROR adding members of group: $g ($rc)" >&2
+		esac
 	fi
 done
 
