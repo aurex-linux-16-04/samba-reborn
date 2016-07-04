@@ -8,4 +8,5 @@ GROUPS_BLOCKED="::"
 USERS_BLOCKED="::"
 S4_BASE_DN="dc=samba,dc=xenial"
 S4_USER_DN="cn=Users,$S4_BASE_DN"
+S4_MKPASSWD="/home/depinf/samba-reborn/scripts/samba4u-mkpasswd"
 

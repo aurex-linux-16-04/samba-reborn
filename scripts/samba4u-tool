@@ -10,6 +10,7 @@ GROUPS_BLOCKED="::"
 USERS_BLOCKED="::"
 S4_BASE_DN=""
 S4_USER_DN=""
+S4_MKPASSWD="samba4u-mkpasswd"
 
 # search for configuration file
 CFG_FILE="samba4u.cfg"
