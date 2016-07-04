@@ -1,0 +1,11 @@
+# configuration variables for samba4u
+
+BASE_DN="dc=centro,dc=com"
+GROUPS_DN="ou=grupos,$BASE_DN"
+USERS_DN="ou=usuarios,$BASE_DN"
+LDIF_FILE="/home/depinf/backup-2016-05-18.ldif"
+GROUPS_BLOCKED="::"
+USERS_BLOCKED="::"
+S4_BASE_DN="dc=samba,dc=xenial"
+S4_USER_DN="cn=Users,$S4_BASE_DN"
+
