@@ -194,11 +194,12 @@ EOF
 
 s4add_members(){
 	group_name="$1"
+	users_file="$2"
 	rc=0
 	tmpfile="$(tempfile)"
 	echo -n $USERS_BLOCKED |sed -e "s%^:%%;s%:$%%"|tr ":" "\n" > $tmpfile
 
-	user_list="$(group_get_attr "$group_name" memberUid | grep -vFf $tmpfile |tr "\n" ","| sed s%,$%%)"
+	user_list="$(group_get_attr "$group_name" memberUid | grep -vFf $tmpfile | grep -Ff "$users_file" |tr "\n" ","| sed s%,$%%)"
 	if [ "$user_list" ] ; then
 		samba-tool group addmembers "$group_name" "$user_list" || rc=$?
 	else
@@ -211,7 +212,6 @@ s4add_members(){
 
 # main program
 # Add groups old ldap groups to s4
-if false; then
 group_list | while read g; do
 	if ! echo "$GROUPS_BLOCKED" | grep -q ":$g:" ; then
 		rc=0
@@ -224,7 +224,6 @@ group_list | while read g; do
 		fi
 	fi
 done
-fi
 
 # Add users from old ldap to s4
 user_list | while read u; do
@@ -241,10 +240,13 @@ user_list | while read u; do
 done
 
 # Add group members to s4 
+VALID_USERS="$(tempfile)"
+wbinfo -u  |sed -e "s%^.*\\\%%" > "$VALID_USERS"
+
 group_list | while read g; do
 	if ! echo "$GROUPS_BLOCKED" | grep -q ":$g:" ; then
 		rc=0
-		s4add_members "$g" || rc=$?
+		s4add_members "$g" "$VALID_USERS" || rc=$?
 		case "$rc" in
 			1)
 				echo "No members for $g"
@@ -257,7 +259,7 @@ group_list | while read g; do
 		esac
 	fi
 done
-
+rm -f "$VALID_USERS"
 
 # clean
 # find users not added in this run and remove them ¿?
