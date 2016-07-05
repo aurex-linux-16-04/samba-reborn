@@ -1,0 +1,826 @@
+#!/bin/bash
+#
+# This script modifies existing Samaba4 AD posix/unix 
+# UID and GID related attributes
+#
+# It expects the existence of /etc/sysconfig/s4posixmod with proper 
+# config parameters for interacting with the local Samba4 AD environment
+# 
+
+function usage() {
+  echo "Usage: s4posixmod [options] USER|GROUP"
+
+  cat <<EOF
+Samba4 User Modifier
+
+Options:
+  -a, --add                   	Add (or update) posix/unix UID/GID info on
+				the provided Samba4 user or group. By
+				default, this uses the builtin Samba4 
+				UID/GID for the posix/unix UID/GID. 
+				Exits successfully if UID/GID already exists
+  -c, --comment                 A short description of the user login. This 
+				is usually the user's full name
+  -d, --home                    User's home directory. If you leave this 
+				field blank, the $DEFAULT_HOME/$USER in 
+				this script will be used.  You can update it
+				manually if you would like to change it
+  -f, --force                   Force the update even if the posix/unix UID 
+				and/or GID exists somewhere
+  -g, --gid GROUP|GID           The group name or number to use for the 
+				posix/unix GID update. Uses the samba4 GID
+				if not specified
+  -h, --help                    Display this help message and exit
+  -r, --remove			Remove all the posix/unix info from the Samba4 
+				object. This option ignores most other options
+				when making its update
+  -s, --shell                 	The name of the user´s login shell. If you
+				leave this field blank, the $DEFAULT_SHELL in
+				this script will be used.  You can update it
+                                manually if you would like to change it
+  -u, --uid UID                 Use UID for the posix/unix UID.  Uses the 
+				samba4 UID if not specified
+  -v, --verbose                 Display verbose output
+  -x, --xid XID                 Use XID to change the assigned Samba group 
+				ID under the hood. This can help prevent 
+				collisions with existing local Linux groups
+
+EOF
+}
+
+function get_samba4_group_gid {
+	if [ "$ISUSER" = 0 ]; then
+		# For groups use the CN 
+		GID=$(wbinfo --group-info=$CN 2>/dev/null | cut -d ":" -f 3)
+	else
+		# For users, use the group name provided as an option
+		GID=$(wbinfo --group-info=$GROUP 2>/dev/null | cut -d ":" -f 3)
+	fi
+}
+
+function get_samba4_group_name {
+	GROUP=$(wbinfo --gid-info=$GID| cut -f1 -d: 2>/dev/null)
+	# Chop off the domain info if present
+	if [[ "$GROUP" =~ '\' ]]; then 
+		TEMP=$(echo $GROUP| cut -f2 -d'\')
+		GROUP=$TEMP
+	fi
+}
+
+function get_samba4_user_gid {
+	GID=$(wbinfo -i $CN 2>/dev/null | cut -d ":" -f 4)
+}
+
+function get_samba4_uid {
+	PUID=$(wbinfo -i $CN 2>/dev/null | cut -d ":" -f 3)
+}
+
+function get_posix_gid {
+	CURRENT_GID=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(cn=$CN)"| grep gidNumber|  cut -f2 -d:| tr -d [[:space:]])
+}
+
+function get_posix_uid {
+	CURRENT_UID=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(cn=$CN)"| grep uid|  cut -f2 -d:| tr -d [[:space:]])
+}
+
+function get_posix_home {
+	CURRENT_HOME=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(cn=$CN)"| grep unixHomeDirectory|  cut -f2 -d:| tr -d [[:space:]])
+}
+
+function get_posix_shell {
+	CURRENT_SHELL=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(cn=$CN)"| grep loginShell|  cut -f2 -d:| tr -d [[:space:]])
+}
+
+function get_posix_comment {
+	#CURRENT_COMMENT=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(cn=$CN)"| grep gecos|  cut -f2 -d:| tr -d [[:space:]])
+	CURRENT_COMMENT=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(cn=$CN)"| grep gecos|  cut -f2 -d:)
+}
+
+function check_for_posixacct_class {
+	HAS_POSIXACCT_CLASS=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(cn=$CN)"| grep posixAccount|  cut -f2 -d:| tr -d [[:space:]])
+}
+
+function check_for_posixgroup_class {
+	HAS_POSIXGROUP_CLASS=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(cn=$CN)"| grep posixGroup|  cut -f2 -d:| tr -d [[:space:]])
+}
+
+function check_for_xid {
+	FOUND_CNS=$(ldbsearch --url=$SAMBA_PATH/private/idmap.ldb "(xidNumber=$XID)"|grep "^cn:" | cut -f2 -d: )
+
+	if [ "$FOUND_CNS" != "" ]; then 
+		# XID is used already. Check if its our group
+		if [ $(wbinfo -s $FOUND_CNS|cut -f2 -d"\\"|sed 's/..$//') != "$GROUP" ]; then
+			# XID is used already.
+			echo "ERROR: Duplicate XIDs are not allowed:"  > /dev/stderr
+			echo "XID $XID is assigned to atlernate Group(s):"  > /dev/stderr
+			for x in $FOUND_CNS; do 
+				wbinfo -s $x|cut -f2 -d"\\"|sed 's/..$//' > /dev/stderr
+			done
+			exit 1
+		fi
+	fi
+}
+
+function check_for_gid {
+	FOUND_CNS=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(gidNumber=$GID)"|grep "^cn:" | cut -f2 -d: )
+
+	if [ "$FOUND_CNS" != "" -a "$FORCE" != "1" ]; then 
+		# GID is used already. Check if its our group
+		if [ "`echo $FOUND_CNS| tr -d [[:space:]]`" != "$GROUP" ]; then
+#			echo "$GROUP has the following posix/unix GID:" > $LOG
+#			echo $GID > $LOG
+#			exit 0
+#		else
+			echo "WARNING: Posix/Unix GID $GID exists on atlernate Group(s):"  > /dev/stderr
+			for x in $FOUND_CNS; do echo $x;done  > /dev/stderr
+			exit 1
+		fi
+	fi
+}
+
+function check_for_uid {
+	FOUND_CNS=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(uid=$PUID)"|grep "^cn:" | cut -f2 -d: )
+
+	if [ "$FOUND_CNS" != "" -a "$FORCE" != "1" ]; then 
+		# UID is used already. Check if its our user
+		if [ "`echo $FOUND_CNS| tr -d [[:space:]]`" != "$CN" ]; then
+			echo "WARNING: Posix/Unix UID $PUID exists on atlernate User(s):"  > /dev/stderr
+			for x in $FOUND_CNS; do echo $x;done  > /dev/stderr
+			exit 1
+		fi
+	fi
+}
+
+function modify_posix_gid {
+	echo -n "Adding $GROUP($GID) to $CN... " > $LOG
+	# Modify the posix GID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+replace: gidnumber
+gidnumber: $GID" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function modify_posix_uid {
+	echo -n "Changing $CN to UID: $PUID... " > $LOG
+	# Modify the posix UID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+replace: uid
+uid: $PUID" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function modify_group_xid {
+	echo -n "Changing XID on $CN to $XID... " > $LOG
+	# Get the SID of the group
+	SID=$(wbinfo --name-to-sid="$CN"| cut -d " " -f1)
+
+	# Modify the posix UID info as requested
+	echo -e "dn: cn=$SID
+changetype: modify
+replace: xidNumber
+xidNumber: $XID" | ldbmodify --url=$SAMBA_PATH/private/idmap.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function modify_posix_home {
+	echo -n "Changing $CN home dir to $PHOME... " > $LOG
+	# Modify the posix UID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+replace: unixHomeDirectory
+unixHomeDirectory: $PHOME" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function modify_posix_comment {
+	echo -n "Changing $CN comment to $PCOMMENT... " > $LOG
+	# Modify the posix UID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+replace: gecos
+gecos: $PCOMMENT" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function modify_posix_shell {
+	echo -n "Changing $CN login shell to $PSHELL... " > $LOG
+	# Modify the posix UID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+replace: loginShell
+loginShell: $PSHELL" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function add_posixacct_class {
+	echo -n "Adding PosixAccount Class to $CN... " > $LOG
+	# Add the posix User info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+add:objectclass
+objectclass: posixAccount" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+        check_for_posixacct_class
+
+        if [ "$HAS_POSIXACCT_CLASS" = "" ] ; then
+                echo "ERROR: Failed to add posixAccount class to $CN" > /dev/stderr
+		exit 1
+        fi
+}
+
+function add_posixgroup_class {
+	echo -n "Adding PosixGroup Class to $CN... " > $LOG
+	# Add the posix Group info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+add:objectclass
+objectclass: posixGroup" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+        check_for_posixgroup_class
+
+        if [ "$HAS_POSIXGROUP_CLASS" = "" ] ; then
+                echo "ERROR: Failed to add posixGroup class to $CN" > /dev/stderr
+		exit 1
+        fi
+}
+
+function add_posix_uid {
+	echo -n "Adding UID: $PUID to $CN... " > $LOG
+	# Add the posix UID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+add: uid
+uid: $PUID" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function add_posix_gid {
+	echo -n "Adding GID: $GROUP($GID) to $CN... " > $LOG
+	# Add the posix GID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+add: gidnumber
+gidnumber: $GID" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function add_posix_home {
+	echo -n "Adding home dir: $PHOME to $CN... " > $LOG
+	# Add the posix UID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+add: unixHomeDirectory
+unixHomeDirectory: $PHOME" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function add_posix_comment {
+	echo -n "Adding comment: $PCOMMENT to $CN... " > $LOG
+	# Add the posix UID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+add: gecos
+gecos: $PCOMMENT" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function add_posix_shell {
+	echo -n "Adding default shell: $PSHELL to $CN... " > $LOG
+	# Add the posix UID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+add: loginShell
+loginShell: $PSHELL" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function del_posixacct_class {
+	echo -n "Removing posixAccount Class from $CN... " > $LOG
+	# Modify the posix class info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+delete:objectclass
+objectclass: posixAccount" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function del_posixgroup_class {
+	echo -n "Removing posixGroup Class from $CN... " > $LOG
+	# Modify the posix class info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+delete:objectclass
+objectclass: posixGroup" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function del_posix_uid {
+	echo -n "Removing UID: $PUID from $CN... " > $LOG
+	# Modify the posix UID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+delete: uid
+uid: $PUID" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function del_posix_gid {
+	echo -n "Removing Group: $GROUP($GID) from $CN... " > $LOG
+	# Modify the posix GID info as requested
+	echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+delete: gidnumber
+gidnumber: $GID" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+
+}
+
+function del_posix_home {
+	# Check if we already have a HOME set
+	get_posix_home
+	
+	if [ "$CURRENT_HOME" != "" ]; then
+		echo -n "Removing home dir: $CURRENT_HOME from $CN... " > $LOG
+		# Modify the posix UID info as requested
+		echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+delete: unixHomeDirectory
+unixHomeDirectory: $CURRENT_HOME" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+	fi
+}
+
+function del_posix_comment {
+	# Check if we already have a COMMENT set
+	get_posix_comment
+	
+	if [ "$CURRENT_COMMENT" != "" ]; then
+		echo -n "Removing comment: \"$CURRENT_COMMENT\" from $CN... " > $LOG
+		# Modify the posix UID info as requested
+		echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+delete: gecos
+gecos: $CURRENT_COMMENT" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+	fi
+}
+
+function del_posix_shell {
+	# Check if we already have a SHELL set
+	get_posix_shell
+	
+	if [ "$CURRENT_SHELL" != "" ]; then
+		echo -n "Removing default shell: $CURRENT_SHELL from $CN... " > $LOG
+		# Modify the posix UID info as requested
+		echo -e "dn: cn=$CN,$UG_CONTAINER,$DOMAIN_DN
+changetype: modify
+delete: loginShell
+loginShell: $CURRENT_SHELL" | ldbmodify --url=$SAMBA_PATH/private/sam.ldb -b $DOMAIN_DN -i > $LOG
+	fi
+}
+
+function add_posix_info {
+	# Check if GID exists already (Dont need for usermods)
+	if [ "$ISUSER" = 0 ]; then
+		check_for_gid
+	fi
+
+	# User modifications
+	if [ "$ISUSER" = 1 ]; then
+		check_for_uid
+
+		# Check if we already have a UID set
+		get_posix_uid
+
+		# Only do something if we don't have the right ID already	
+		if [  "$CURRENT_UID" != "$PUID" ]; then
+			# If blank UID then just set it
+			if [ "$CURRENT_UID" != "" ]; then
+				if [  "$FORCE" = "0" ]; then 
+					# UID is set already and force is not set
+					echo "ERROR: $CN already has the following posix/unix UID:" > /dev/stderr
+					echo $CURRENT_UID > /dev/stderr
+					echo  > /dev/stderr
+					echo "Use the -f or --force option to overwrite existing settings" > /dev/stderr
+					exit 1
+				else
+					# UID is set already and force was called.  Modify the UID
+					modify_posix_uid
+				fi
+			else
+				# UID is not set.  Set the posix/unix UID
+				add_posix_uid
+			fi
+		fi
+		
+		# If provided home, set it
+		if [  "$PHOME" != "" ]; then
+			# Check if we already have a HOME set
+			get_posix_home
+		
+			if [ "$CURRENT_HOME" != "" ]; then
+				modify_posix_home
+			else
+				add_posix_home
+			fi
+		fi
+					
+		# If provided shell, set it
+		if [  "$PSHELL" != "" ]; then
+			# Check if we already have a SHELL set
+			get_posix_shell
+		
+			if [ "$CURRENT_SHELL" != "" ]; then
+				modify_posix_shell
+			else
+				add_posix_shell
+			fi
+		fi
+					
+		# If provided comment, set it
+		if [  "$PCOMMENT" != "" ]; then
+			# Check if we already have a COMMENT set
+			get_posix_comment
+		
+			if [ "$CURRENT_COMMENT" != "" ]; then
+				modify_posix_comment
+			else
+				add_posix_comment
+			fi
+		fi
+					
+
+	fi
+
+	# Group modifications
+	get_posix_gid
+
+	# Only do something if we don't have the right ID already	
+	if [  "$CURRENT_GID" != "$GID" ]; then
+		# If blank UID then just set it
+		if [ "$CURRENT_GID" != "" ]; then
+			if [  "$CURRENT_GID" != "$GID" -a "$FORCE" = "0" -a "$XID" = "" ]; then 
+				# GID is set already and force is not set
+				echo "ERROR: $CN already has the following posix/unix GID:" > /dev/stderr
+				echo $CURRENT_GID > /dev/stderr
+				echo  > /dev/stderr
+				echo "Use the -f or --force option to overwrite existing settings" > /dev/stderr
+				exit 1
+			else
+				# GID is set already and force was called.  Modify the GID
+				modify_posix_gid
+			fi
+		else
+			# GID is not set.  Set the posix/unix GID
+			add_posix_gid
+		fi
+	fi
+
+	# Get final settings
+	if [ "$ISUSER" = 1 ]; then
+		get_posix_uid
+		echo "$CN has the following posix/unix UID: $CURRENT_UID" > $LOG
+	fi
+	get_posix_gid
+	echo "$CN has the following posix/unix GID: $CURRENT_GID" > $LOG
+}
+
+function validate_remove {
+	# Get curent posix GID 
+	GID=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(cn=$CN)"| grep gidNumber|  cut -f2 -d:| tr -d [[:space:]])
+	if [ "$ISUSER" = 1 ]; then
+		PUID=$(ldbsearch --url=$SAMBA_PATH/private/sam.ldb "(cn=$CN)"| grep uid|  cut -f2 -d:| tr -d [[:space:]])
+	fi
+
+	# Exit if posix UID/GID are already blank
+	if [ "$ISUSER" = 1 ]; then
+		if [ "$GID" = "" -a "$PUID" = "" ];then 
+			echo "No posix/unix info associated with user: $CN" > $LOG
+			exit 0
+		fi
+	else
+		if [ "$GID" = "" ];then 
+			echo "No posix/unix info associated with user: $CN" > $LOG
+			exit 0
+		fi
+	fi
+}
+
+function remove_posix_info {
+	validate_remove
+
+	# Posix GID needs to be deleted
+	del_posix_gid
+	if [ "$ISUSER" = 1 ]; then
+		del_posix_uid
+		del_posix_home
+		del_posix_shell
+		del_posix_comment
+		del_posixacct_class
+	else
+		del_posixgroup_class
+	fi
+
+	validate_remove
+
+	# If we got here the delete failed
+	if [ "$GID" != "" ];then
+		echo "ERROR: failed to delete $GID from $CN"  > /dev/stderr
+	fi
+	if [ "$PUID" != "" -a  "$ISUSER" = 1 ];then
+		echo "ERROR: failed to delete $PUID from $CN"  > /dev/stderr
+	fi
+	exit 1
+}
+
+########
+# Main #
+########
+
+# Set application defaults here.  They can be overridden 
+# with the sysconfig file if desired
+
+# The domain DN
+DOMAIN_DN="dc=subdomain,dc=example,dc=com"
+
+# User and Group Container in LDAP
+UG_CONTAINER="cn=Users"
+
+# Path to Samba4 Installation 
+#SAMBA_PATH="/usr/local/samba/"		# Samba4 default path
+SAMBA_PATH="/var/lib/samba"		# SerNet default path
+
+# Default home dir path 
+DEFAULT_HOME="/home"
+
+# Default login shell
+DEFAULT_SHELL="/bin/bash"
+
+# pull in sysconfig settings if it exists
+[ -f /etc/sysconfig/s4posixmod ] && . /etc/sysconfig/s4posixmod
+
+# Validate things are setup in the sysconfig file
+if [ "$DOMAIN_DN" = "" ]; then 
+	echo "ERROR:DOMAIN_DN not set in /etc/sysconfig/s4posixmod"  > /dev/stderr
+	exit 1
+fi
+if [ "$UG_CONTAINER" = "" ]; then 
+	echo "ERROR:UG_CONTAINER not set in /etc/sysconfig/s4posixmod"  > /dev/stderr
+	exit 1
+fi
+if [ "$SAMBA_PATH" = "" ]; then 
+	echo "ERROR:SAMBA_PATH not set in /etc/sysconfig/s4posixmod"  > /dev/stderr
+	exit 1
+fi
+if [ "$DEFAULT_SHELL" = "" ]; then 
+	echo "ERROR:DEFAULT_SHELL not set in /etc/sysconfig/s4posixmod"  > /dev/stderr
+	exit 1
+fi
+if [ "$DEFAULT_HOME" = "" ]; then 
+	echo "ERROR:DEFAULT_HOME not set in /etc/sysconfig/s4posixmod"  > /dev/stderr
+	exit 1
+fi
+
+# Blank comand line flags 
+ADD=0
+CN=""
+FORCE=0
+GID=""
+GROUP=""
+HAS_POSIXACCT_CLASS=""
+HAS_POSIXGROUP_CLASS=""
+ISUSER=0
+LOG="/dev/null"
+PCOMMENT=""
+PHOME=""
+PSHELL=""
+PUID=""
+REMOVE=0
+XID=""
+
+# Parse command line options
+while [ $# -gt 0 ]; do
+        case "$1" in
+
+        -a|--add)
+		ADD=1
+               	if [ $REMOVE -ne 0 ]; then
+                        echo "ERROR: You can only specify add or remove, not both" > /dev/stderr
+			echo > /dev/stderr
+                        usage > /dev/stderr
+                        exit 1
+                fi
+        ;;
+
+        -c|--comment)
+                shift
+		PCOMMENT="$1"
+        ;;
+
+        -d|--home)
+                shift
+		PHOME="$1"
+        ;;
+
+        -f|--force)
+                FORCE=1
+        ;;
+
+        -g|--gid)
+                shift
+		GID="$1"	
+        ;;
+
+        -h|--help)
+                usage
+		exit 0
+        ;;
+
+        -r|--remove)
+              	REMOVE=1  
+               	if [ $ADD -ne 0 ]; then
+                        echo "ERROR: You can only specify add or remove, not both" > /dev/stderr
+			echo > /dev/stderr
+                        usage > /dev/stderr
+                        exit 1
+                fi
+        ;;
+
+        -s|--shell)
+                shift
+		PSHELL="$1"
+        ;;
+
+        -u|--uid)
+                shift
+		PUID="$1"	
+        ;;
+
+        -v|--verbose)
+		LOG="/dev/stdout"
+        ;;
+
+        -x|--xid)
+                shift
+		XID="$1"	
+        ;;
+
+        *)
+                if [ -n "$CN" ]; then
+                        echo "ERROR: You can only specify one group at a time" > /dev/stderr
+			echo > /dev/stderr
+                        usage > /dev/stderr
+                        exit 1
+                fi
+
+                CN="$1"
+        ;;
+  esac
+  shift
+done
+
+# Validate we have a user or group
+if [ "$CN" = "" ]; then
+	echo "ERROR: You must specify a user or group" > /dev/stderr
+	echo > /dev/stderr
+	usage > /dev/stderr
+	exit 1
+fi
+
+if [ "$ADD" = "0" -a "$REMOVE" = "0" ]; then
+	echo "ERROR: You must specify either add or remove" > /dev/stderr
+	echo > /dev/stderr
+	usage > /dev/stderr
+	exit 1
+fi
+
+# Determine if we have a user or a group to modify
+ISUSER=$(wbinfo -i $CN 2>/dev/null)
+if [ "$ISUSER" = "" ]; then
+	# We did not get user info
+	ISUSER=$(wbinfo --group-info $CN 2>/dev/null)
+	# Check if we have a group just in case
+	if [ "$ISUSER" = "" ]; then
+		# We did not get a group either
+		echo "ERROR: $CN does not exist as a group or user" > /dev/stderr
+		exit 1
+	else
+		# We found a group
+		ISUSER=0
+	fi
+else
+	# We found a user
+	ISUSER=1
+fi	
+
+# Search for the Samba4 GID if we don't have one
+if [ "$GID" = "" ]; then
+	if [ "$ISUSER" = 1 ]; then
+		# Get the Samba USER GID
+		get_samba4_user_gid
+	else
+		# Get the Samba Group GID
+		get_samba4_group_gid
+	fi
+fi
+
+
+# See if we have a group name instead of a GID
+GROUP=$(echo $GID| grep "^-\?[0-9]*$")
+if [ "$GROUP" = "" ]; then
+	# We were passed a group name so verify we are looking at a user
+	if [ "$ISUSER" != 1 ]; then
+		echo "ERROR: You cannot use a groupname with the -g or --gid options if you are" > /dev/stderr
+		echo "modifying a group.  You must use a number or remove the -g or --gid option." > /dev/stderr
+		exit 1
+	fi
+	# Get the GID for the group provided for this user mod	
+	GROUP=$GID
+	get_samba4_group_gid
+else
+	# It's a GID so get the name if its a user mod
+	if [ "$ISUSER" = 1 ]; then
+		get_samba4_group_name
+	else
+		# On a group mod, the CN is the group name
+		GROUP=$CN
+	fi
+fi
+
+# Validate we have a GID to use
+if [ "$GID" = "" -o "$GROUP" = "" ]; then
+	echo "ERROR: Failed to get group info for $CN" > /dev/stderr
+	exit 1
+fi
+
+# Only do user checks if we have a user
+if [ "$ISUSER" = 1 ]; then
+	# Search for the Samba4 UID if we don't have one
+	if [ "$PUID" = "" ]; then
+		get_samba4_uid
+	fi
+	# Validate we have a UID to use
+
+	if [ "$PUID" = "" ]; then
+		echo "ERROR: User $CN does not exist" > /dev/stderr
+		exit 1
+	fi
+	# Validate we have a home dir
+	if [ "$PHOME" = "" ]; then
+		PHOME=$DEFAULT_HOME/$CN
+	fi
+	# Validate we have a shell
+	if [ "$PSHELL" = "" ]; then
+		PSHELL=$DEFAULT_SHELL
+	fi
+fi
+
+# Process XID update
+if [ "$XID" != "" ]; then
+	# Make sure its a number
+	TEST_XID=$(echo $XID| grep "^-\?[0-9]*$")
+	if [ "$TEST_XID" = "" ]; then
+		echo "ERROR: XID must be a number" > /dev/stderr
+		exit 1
+	fi
+
+	# Validate we have a group if we have an XID
+	if [ "$ISUSER" = "1" ]; then
+		echo "ERROR: You can only edit the XID on groups" > /dev/stderr
+		exit 1
+	fi
+
+	# Check if its a remove request
+	if [ "$REMOVE" = "1" ]; then
+		echo "ERROR: You can only update the built XID on groups; not remove them" > /dev/stderr
+		exit 1
+	fi
+
+	# Validate the XID is unique before we change anything
+	check_for_gid
+	check_for_xid
+
+	# Go ahead and change it	
+	modify_group_xid
+	# Now that we changed the XID, we need to make the GID match
+	echo "Updating the GID on $GROUP to match the new XID: $XID" > $LOG
+	GID=$XID 
+fi
+
+# Call the requested function
+if [ "$REMOVE" = "1" ]; then
+	remove_posix_info
+else
+	# Must be an add. Add the relevant posix class to the CN if needed
+	if [ "$ISUSER" = 1 ]; then		
+		check_for_posixacct_class
+		if [ "$HAS_POSIXACCT_CLASS" = "" ] ; then 
+			add_posixacct_class
+		fi
+	else
+		check_for_posixgroup_class
+		if [ "$HAS_POSIXGROUP_CLASS" = "" ] ; then 
+			add_posixgroup_class
+		fi
+	fi
+	add_posix_info
+fi
