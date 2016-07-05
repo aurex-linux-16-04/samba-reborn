@@ -108,7 +108,7 @@ s4user_add (){
 	home_drive="$(user_get_attr "$user_name" "sambaHomeDrive")"
 	MAIL_OPTION=""
 	if [ "$mail_address" ] ; then
-		MAIL_OPTION="--mail-address=\"$mail_address\""
+		MAIL_OPTION="--mail-address=$mail_address"
 	fi
 	rc=0
 	#samba-tool user add "$user_name" --random-password --given-name="$given_name" $MAIL_OPTION --home-drive="$home_drive" 2> /dev/null || rc=$?
@@ -131,6 +131,9 @@ dn: cn=$user_name,$S4_USER_DN
 changetype: modify
 add:objectclass
 objectClass: posixAccount
+-
+add:uid
+uid: $user_name
 -
 add:uidnumber
 uidnumber: $uidNumber
