@@ -105,7 +105,8 @@ s4user_add (){
 	user_name="$1"
 	given_name="$(user_get_attr "$user_name" "givenName")"
 	sn="$(user_get_attr "$user_name" "sn")"
-	gecos="$given_name  $sn"
+	gecos="$(user_get_attr "$user_name" "gecos")"
+	[ "$gecos" ] || gecos="$given_name  $sn"
 	mail_address="$(user_get_attr "$user_name" "mail")"
 	home_drive="$(user_get_attr "$user_name" "sambaHomeDrive")"
 	uidNumber="$(user_get_attr "$user_name" "uidNumber")"
@@ -121,7 +122,7 @@ s4user_add (){
 	rc=0
 	#samba-tool user add "$user_name" --random-password --given-name="$given_name" $MAIL_OPTION --home-drive="$home_drive" 2> /dev/null || rc=$?
 	#samba-tool user add "$user_name" --random-password $MAIL_OPTION --home-drive="$home_drive" 2> /dev/null || rc=$?
-	samba-tool user add "$user_name" --use-username-as-cn --random-password $MAIL_OPTION --home-drive="$home_drive" --home-directory="\\estaminas\$user_name" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" 2> /dev/null || rc=$?
+	samba-tool user add "$user_name" --use-username-as-cn --random-password $MAIL_OPTION --home-drive="$home_drive" --home-directory="\\\estaminas\\$user_name" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" --uid="$user_name" 2> /dev/null || rc=$?
 	tmpfile="$(tempfile)"
 	if [ $rc -eq 0 ] ; then
 		if [ "$employeeNumber" ] ; then
