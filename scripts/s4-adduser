@@ -12,11 +12,6 @@ S4_BASE_DN=""
 S4_USER_DN=""
 S4_MKPASSWD="samba4u-mkpasswd"
 
-STUDENTS_CSV=""
-TEACHERS_CSV=""
-PASSWD_LOG=""
-#format -> login:passwd:date
-
 # search for configuration file
 CFG_FILE="samba4u.cfg"
 
@@ -24,49 +19,11 @@ CFG_FILE="samba4u.cfg"
 . "./$CFG_FILE"
 
 
-chmod 600 "$PASSWD_LOG"
-
 GROUPS_LOG="$(tempfile)"
 USERS_LOG="$(tempfile)"
 for f in $GROUPS_LOG $USERS_LOG; do
 	:> $f
 done
-
-gen_random_number(){
-	printf "%03d" $(($RANDOM % 1000))
-}
-gen_random_pass(){
-	# $1 -> login
-	echo "${1}-$(gen_random_number)"
-}
-get_second_field_csv(){
-	sed -ne "/^\"$1\"/{s%^[^,]\+,\"%%;s%\".*$%%;p}" "$2"
-}
-
-user_getpass(){
-	logname="$1"
-	gidnumber="$2"
-	new_pass=""
-	case "$gidnumber" in
-		501)
-			new_pass="$(get_second_field_csv "$logname" "$TEACHERS_CSV")"
-			;;
-		502)
-			new_pass="$(get_second_field_csv "$logname" "$STUDENTS_CSV")"
-			;;
-	esac
-	if [ -z "$new_pass" ] ; then
-		# search in log
-		new_pass="$(sed -ne "/^$logname:/{s%^[^:]\+:%%;s%:.*$%%;p}" "$PASSWD_LOG")"
-	fi
-	if [ -z "$new_pass" ] ; then
-		# generate random pass
-		new_pass="$(gen_random_pass "$logname")"
-		# write it in log file
-		echo "$logname:$new_pass:$(date "+%F")" >> "$PASSWD_LOG"
-	fi
-	echo "$new_pass"
-}
 
 gid_get_name(){
 	gid_number="$1"
@@ -146,16 +103,16 @@ user_get_attr(){
 
 s4user_add (){
 	user_name="$1"
-	given_name="$(user_get_attr "$user_name" "givenName")"
-	sn="$(user_get_attr "$user_name" "sn")"
-	gecos="$(user_get_attr "$user_name" "gecos")"
+	uidNumber="$2"
+	given_name="Pepe"
+	sn="Perico Palotes"
+	gecos="Perico Palotes  Pepe"
 	[ "$gecos" ] || gecos="$given_name  $sn"
-	mail_address="$(user_get_attr "$user_name" "mail")"
-	home_drive="$(user_get_attr "$user_name" "sambaHomeDrive")"
-	uidNumber="$(user_get_attr "$user_name" "uidNumber")"
-	gidNumber="$(user_get_attr "$user_name" "gidNumber")"
-	homeDirectory="$(user_get_attr "$user_name" "homeDirectory")"
-	employeeNumber="$(user_get_attr "$user_name" "employeeNumber")"
+	mail_address="perico@ausiasmarch.net"
+	home_drive="S:"
+	gidNumber="501"
+	homeDirectory="/datos/usuarios/pepe"
+	employeeNumber="1122334455667788"
 	# establecer primarygroup
 	#groupid="$(gid_get_groupid $gidNumber)"
 	MAIL_OPTION=""
@@ -166,10 +123,9 @@ s4user_add (){
 	#samba-tool user add "$user_name" --random-password --given-name="$given_name" $MAIL_OPTION --home-drive="$home_drive" 2> /dev/null || rc=$?
 	#samba-tool user add "$user_name" --random-password $MAIL_OPTION --home-drive="$home_drive" 2> /dev/null || rc=$?
 	#samba-tool user add "$user_name" --use-username-as-cn --random-password $MAIL_OPTION --home-drive="$home_drive" --home-directory="\\\estaminas\\$user_name" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" --uid="$user_name" 2> /dev/null || rc=$?
-
-	PASSWORD="$(user_getpass "$user_name" "$gidNumber")"
-	samba-tool user add "$user_name" --use-username-as-cn --password=$PASSWORD $MAIL_OPTION --home-drive="$home_drive" --home-directory="\\\estaminas\\$user_name" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" --uid="$user_name" 2> /dev/null || rc=$?
+	samba-tool user add "$user_name" --use-username-as-cn --random-password $MAIL_OPTION --home-drive="$home_drive" --home-directory="\\\estaminas\\$user_name" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" --uid="$user_name" 2> /dev/null || rc=$?
 	tmpfile="$(tempfile)"
+
 	if [ $rc -eq 0 ] ; then
 		if [ "$employeeNumber" ] ; then
 			cat << EOF > $tmpfile
@@ -191,16 +147,16 @@ EOF
 	samba-tool user setexpiry "$user_name" --noexpiry || rc=2
 	[ $rc -eq 0 ] || return $rc
 
-#	# copiamos password del ldap viejo
-#	ntpasswd="$(user_get_attr "$user_name" "sambaNTPassword")"
-#	
-#	cat << EOF > $tmpfile
-#dn: cn=$user_name,$S4_USER_DN
-#changetype: modify
-#replace: unicodePwd
-#unicodePwd:: $($S4_MKPASSWD $ntpasswd) 
-#EOF
-#	ldbmodify --url=/var/lib/samba/private/sam.ldb --controls=local_oid:1.3.6.1.4.1.7165.4.3.12:0 -b $S4_BASE_DN $tmpfile >/dev/null || rc=3
+	# copiamos password del ldap viejo
+	ntpasswd="$(user_get_attr "lgarciag" "sambaNTPassword")"
+	
+	cat << EOF > $tmpfile
+dn: cn=$user_name,$S4_USER_DN
+changetype: modify
+replace: unicodePwd
+unicodePwd:: $($S4_MKPASSWD $ntpasswd) 
+EOF
+	ldbmodify --url=/var/lib/samba/private/sam.ldb --controls=local_oid:1.3.6.1.4.1.7165.4.3.12:0 -b $S4_BASE_DN $tmpfile >/dev/null || rc=3
 	rm -f "$tmpfile"
 	return $rc
 }
@@ -223,58 +179,21 @@ s4add_members(){
 	return $rc
 }
 
+usage(){
+	echo "$0 user_name uidNumber"
+	exit 0
+}
 
 # main program
 # Add groups old ldap groups to s4
-group_list | while read g; do
-	if ! echo "$GROUPS_BLOCKED" | grep -q ":$g:" ; then
-		rc=0
-		s4group_add "$g"  || rc=$?
-		if [ $rc -eq 0 ] ; then
-			echo "Group $g: added"
-			echo "$g" >> $GROUPS_LOG
-		else
-			echo "==> ERROR adding group: $g ($rc)" >&2
-		fi
-	fi
-done
 
-# Add users from old ldap to s4
-user_list | while read u; do
-	if ! echo "$USERS_BLOCKED" | grep -q ":$u:" ; then
-		rc=0
-		s4user_add "$u" || rc=$?
-		if [ $rc -eq 0 ] ; then
-			echo "User $u: added"
-			echo "$u" >> $USERS_LOG
-		else
-			echo "==> ERROR adding user: $u ($rc)" >&2
-		fi
-	fi
-done
+ user_name="$1"
+ uidNumber="$2"
 
-# Add group members to s4 
-VALID_USERS="$(tempfile)"
-wbinfo -u  |sed -e "s%^.*\\\%%" > "$VALID_USERS"
+if [ -z "$user_name" ] || [ -z "$uidNumber" ] ; then
+	usage
+fi
 
-group_list | while read g; do
-	if ! echo "$GROUPS_BLOCKED" | grep -q ":$g:" ; then
-		rc=0
-		s4add_members "$g" "$VALID_USERS" || rc=$?
-		case "$rc" in
-			1)
-				echo "No members for $g"
-				;;
-			0)
-				echo "Members of $g: added"
-				;;
-			*)
-				echo "==> ERROR adding members of group: $g ($rc)" >&2
-		esac
-	fi
-done
-rm -f "$VALID_USERS"
-
-# clean
-# find users not added in this run and remove them ¿?
-# find groups not added in this run and remove them ¿?
+if s4user_add "$user_name" "$uidNumber" ; then
+	echo "$user_name Creado con exito"
+fi
