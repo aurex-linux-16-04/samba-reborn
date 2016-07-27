@@ -1,5 +1,5 @@
-#!/bin/sh
-# ...
+#!/bin/bash
+# Sorry, bash required in order to use $RANDOM ...
 
 
 BASE_DN=""
@@ -23,7 +23,7 @@ CFG_FILE="samba4u.cfg"
 [ -r "$CFG_FILE" ] || exit 100
 . "./$CFG_FILE"
 
-
+touch "$PASSWD_LOG"
 chmod 600 "$PASSWD_LOG"
 
 GROUPS_LOG="$(tempfile)"
