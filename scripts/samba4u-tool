@@ -167,10 +167,11 @@ s4user_add (){
 	#samba-tool user add "$user_name" --random-password $MAIL_OPTION --home-drive="$home_drive" 2> /dev/null || rc=$?
 	#samba-tool user add "$user_name" --use-username-as-cn --random-password $MAIL_OPTION --home-drive="$home_drive" --home-directory="\\\estaminas\\$user_name" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" --uid="$user_name" 2> /dev/null || rc=$?
 
-	PASSWORD="$(user_getpass "$user_name" "$gidNumber")"
-	samba-tool user add "$user_name" --use-username-as-cn --password=$PASSWORD $MAIL_OPTION --home-drive="$home_drive" --home-directory="\\\estaminas\\$user_name" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" --uid="$user_name" 2> /dev/null || rc=$?
+	samba-tool user add "$user_name" --use-username-as-cn --random-password $MAIL_OPTION --home-drive="$home_drive" --home-directory="\\\estaminas\\$user_name" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" --uid="$user_name" 2> /dev/null || rc=$?
 	tmpfile="$(tempfile)"
 	if [ $rc -eq 0 ] ; then
+		PASSWORD="$(user_getpass "$user_name" "$gidNumber")"
+		samba-tool user setpassword "$user_name" --newpassword=$PASSWORD || true
 		if [ "$employeeNumber" ] ; then
 			cat << EOF > $tmpfile
 dn: cn=$user_name,$S4_USER_DN
@@ -240,6 +241,7 @@ group_list | while read g; do
 done
 
 # Add users from old ldap to s4
+samba-tool domain passwordsettings set --complexity=off 
 user_list | while read u; do
 	if ! echo "$USERS_BLOCKED" | grep -q ":$u:" ; then
 		rc=0
@@ -252,6 +254,7 @@ user_list | while read u; do
 		fi
 	fi
 done
+samba-tool domain passwordsettings set --complexity=on
 
 # Add group members to s4 
 VALID_USERS="$(tempfile)"
