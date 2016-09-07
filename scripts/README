@@ -17,7 +17,7 @@ S4_BASE_DN="dc=samba,dc=xenial" (nuevo ldap)
 S4_USER_DN="cn=Users,$S4_BASE_DN" (nuevo ldap)
 S4_MKPASSWD="/home/depinf/samba-reborn/scripts/samba4u-mkpasswd"
 
-STUDENTS_CSV="/home/depinf/alumnos.csv" (extraido del mysql "itaca")
-TEACHERS_CSV="/home/depinf/profes.csv" (extraido del mysql "itaca")
+STUDENTS_CSV="/home/depinf/alumnos.csv" (exportado a CSV del mysql "itaca" con SELECT login, DNI_NORM FROM `alumnos` WHERE borrado=0 )
+TEACHERS_CSV="/home/depinf/profes.csv" (exportado a CSV del mysql "itaca" con SELECT login,dni FROM `profesores` WHERE 1)
 PASSWD_LOG="/home/depinf/gen_passwd.log" (generado)
 
