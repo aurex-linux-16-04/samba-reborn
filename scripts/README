@@ -1,0 +1,23 @@
+fichero de configuracion
+========================
+
+Se proporciona una plantilla (samba4u.cfg.test) para el
+fichero de configuracion, que debe copiarse como samba4u.cfg y modificar
+los correpondientes valores:
+
+# configuration variables for samba4u
+
+BASE_DN="dc=centro,dc=com" (viejo ldap)
+GROUPS_DN="ou=grupos,$BASE_DN" (viejo ldap)
+USERS_DN="ou=usuarios,$BASE_DN" (viejo ldap)
+LDIF_FILE="/home/depinf/backup-2016-05-18.ldif" (extraido con slapcat en el viejo ldap)
+GROUPS_BLOCKED="::"
+USERS_BLOCKED="::"
+S4_BASE_DN="dc=samba,dc=xenial" (nuevo ldap)
+S4_USER_DN="cn=Users,$S4_BASE_DN" (nuevo ldap)
+S4_MKPASSWD="/home/depinf/samba-reborn/scripts/samba4u-mkpasswd"
+
+STUDENTS_CSV="/home/depinf/alumnos.csv" (extraido del mysql "itaca")
+TEACHERS_CSV="/home/depinf/profes.csv" (extraido del mysql "itaca")
+PASSWD_LOG="/home/depinf/gen_passwd.log" (generado)
+

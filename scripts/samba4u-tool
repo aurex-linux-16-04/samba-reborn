@@ -15,6 +15,12 @@ S4_MKPASSWD="samba4u-mkpasswd"
 STUDENTS_CSV=""
 TEACHERS_CSV=""
 PASSWD_LOG=""
+
+TEACHERS_ID="501"
+STUDENTS_ID="502"
+SECRETAR_ID="503"
+CONSERJE_ID="504"
+
 #format -> login:passwd:date
 
 # search for configuration file
@@ -156,6 +162,28 @@ s4user_add (){
 	gidNumber="$(user_get_attr "$user_name" "gidNumber")"
 	homeDirectory="$(user_get_attr "$user_name" "homeDirectory")"
 	employeeNumber="$(user_get_attr "$user_name" "employeeNumber")"
+
+	case "$gidNumber" in
+		501)
+			#TEACHERS_ID="501"
+			scriptPath="profesores.vbs"
+			;;
+		502)
+			#STUDENTS_ID="502"
+			scriptPath="alumnos.vbs"
+			;;
+		503)
+			#SECRETAR_ID="503"
+			scriptPath="secretaria.vbs"
+			;;
+		504)	#CONSERJE_ID="504"
+			scriptPath="consergeria.vbs"
+			;;
+		*)
+			scriptPath="other.vbs"
+			;;
+	esac			
+
 	# establecer primarygroup
 	#groupid="$(gid_get_groupid $gidNumber)"
 	MAIL_OPTION=""
@@ -167,7 +195,7 @@ s4user_add (){
 	#samba-tool user add "$user_name" --random-password $MAIL_OPTION --home-drive="$home_drive" 2> /dev/null || rc=$?
 	#samba-tool user add "$user_name" --use-username-as-cn --random-password $MAIL_OPTION --home-drive="$home_drive" --home-directory="\\\estaminas\\$user_name" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" --uid="$user_name" 2> /dev/null || rc=$?
 
-	samba-tool user add "$user_name" --use-username-as-cn --random-password $MAIL_OPTION --home-drive="$home_drive" --home-directory="\\\estaminas\\$user_name" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" --uid="$user_name" 2> /dev/null || rc=$?
+	samba-tool user add "$user_name" --use-username-as-cn --random-password $MAIL_OPTION --home-drive="$home_drive" --home-directory="$homeDirectory" --given-name="$given_name" --surname="$sn" --unix-home="$homeDirectory" --login-shell="/bin/bash" --uid-number="$uidNumber" --gid-number="$gidNumber" --gecos="$gecos" --uid="$user_name" --script-path="$scriptPath" 2> /dev/null || rc=$?
 	tmpfile="$(tempfile)"
 	if [ $rc -eq 0 ] ; then
 		PASSWORD="$(user_getpass "$user_name" "$gidNumber")"
@@ -188,6 +216,18 @@ EOF
 		return 1
 	fi
 	rc=0
+	cat << EOF > $tmpfile
+dn: cn=$user_name,$S4_USER_DN
+changetype: modify
+-
+replace:homeDirectory
+homeDirectory: $homeDirectory
+-
+replace:scriptPath
+scriptPath: $scriptPath
+EOF
+	ldbmodify --url=/var/lib/samba/private/sam.ldb -b $S4_BASE_DN $tmpfile >/dev/null || rc=2
+	rm -f "$tmpfile"
 
 	samba-tool user setexpiry "$user_name" --noexpiry || rc=2
 	[ $rc -eq 0 ] || return $rc
