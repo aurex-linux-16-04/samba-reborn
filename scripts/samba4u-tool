@@ -256,7 +256,14 @@ s4add_members(){
 	echo -n $USERS_BLOCKED |sed -e "s%^:%%;s%:$%%"|tr ":" "\n" > $tmpfile
 
 	user_list="$(group_get_attr "$group_name" memberUid | grep -vFf $tmpfile | grep -Ff "$users_file" |tr "\n" ","| sed s%,$%%)"
+
 	if [ "$user_list" ] ; then
+	        tfile="$(tempfile)"
+		echo "$user_list" |tr " " "\n" |sed -e "s%^%dn: cn=%;s%$%,$S4_USER_DN%;achangetype: modify\nreplace: primarygroupid\nprimarygroupid: $ausiasprimaryid\n" > "$tfile"
+		ldbmodify --url=/var/lib/samba/private/sam.ldb -b $S4_BASE_DN $tfile >/dev/null || rc=2
+	        rm -f "$tfile"
+
+
 		samba-tool group addmembers "$group_name" "$user_list" || rc=$?
 	else
 		rc=1
