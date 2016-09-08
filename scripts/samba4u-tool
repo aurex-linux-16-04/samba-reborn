@@ -184,8 +184,6 @@ s4user_add (){
 			;;
 	esac			
 
-	# establecer primarygroup
-	prigroupid="$(gid_get_groupid $gidNumber)"
 	MAIL_OPTION=""
 	if [ "$mail_address" ] ; then
 		MAIL_OPTION="--mail-address=$mail_address"
@@ -227,7 +225,7 @@ replace:scriptPath
 scriptPath: $scriptPath
 -
 replace: primarygroupid
-primarygroupid: $prigroupid
+primarygroupid: $ausiasprimaryid
 EOF
 	ldbmodify --url=/var/lib/samba/private/sam.ldb -b $S4_BASE_DN $tmpfile >/dev/null || rc=2
 	rm -f "$tmpfile"
@@ -269,6 +267,12 @@ s4add_members(){
 
 
 # main program
+
+# get primary group for windows users
+# Warning!!: group "ausias users" must exists (just for windows, not linux) before running this script!!!!
+ausiasgid="$(wbinfo --group-info "ausias users" |cut -f 3 -d :)"
+ausiasprimaryid="$(gid_get_groupid $ausiasgid)"
+
 # Add groups old ldap groups to s4
 group_list | while read g; do
 	if ! echo "$GROUPS_BLOCKED" | grep -q ":$g:" ; then
