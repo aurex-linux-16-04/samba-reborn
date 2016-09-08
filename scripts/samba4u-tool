@@ -227,7 +227,7 @@ replace:scriptPath
 scriptPath: $scriptPath
 -
 replace: primarygroupid
-primarygroupid: $prigroupid" 
+primarygroupid: $prigroupid
 EOF
 	ldbmodify --url=/var/lib/samba/private/sam.ldb -b $S4_BASE_DN $tmpfile >/dev/null || rc=2
 	rm -f "$tmpfile"
