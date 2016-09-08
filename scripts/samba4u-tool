@@ -271,7 +271,7 @@ s4add_members(){
 # get primary group for windows users
 # Warning!!: group "ausias users" must exists (just for windows, not linux) before running this script!!!!
 ausiasgid="$(wbinfo --group-info "ausias users" |cut -f 3 -d :)"
-ausiasprimaryid="$(gid_get_groupid $ausiasgid)"
+ausiasprimaryid="$(wbinfo --gid-to-sid "$ausiasgid" |cut -d "-" -f 8)"
 
 # Add groups old ldap groups to s4
 group_list | while read g; do
