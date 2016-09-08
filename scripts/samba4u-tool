@@ -185,7 +185,7 @@ s4user_add (){
 	esac			
 
 	# establecer primarygroup
-	#groupid="$(gid_get_groupid $gidNumber)"
+	prigroupid="$(gid_get_groupid $gidNumber)"
 	MAIL_OPTION=""
 	if [ "$mail_address" ] ; then
 		MAIL_OPTION="--mail-address=$mail_address"
@@ -225,6 +225,9 @@ homeDirectory: $homeDirectory
 -
 replace:scriptPath
 scriptPath: $scriptPath
+-
+replace: primarygroupid
+primarygroupid: $prigroupid" 
 EOF
 	ldbmodify --url=/var/lib/samba/private/sam.ldb -b $S4_BASE_DN $tmpfile >/dev/null || rc=2
 	rm -f "$tmpfile"
