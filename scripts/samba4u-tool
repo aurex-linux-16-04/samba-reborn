@@ -223,9 +223,6 @@ homeDirectory: $homeDirectory
 -
 replace:scriptPath
 scriptPath: $scriptPath
--
-replace: primarygroupid
-primarygroupid: $ausiasprimaryid
 EOF
 	ldbmodify --url=/var/lib/samba/private/sam.ldb -b $S4_BASE_DN $tmpfile >/dev/null || rc=2
 	rm -f "$tmpfile"
@@ -258,11 +255,10 @@ s4add_members(){
 	user_list="$(group_get_attr "$group_name" memberUid | grep -vFf $tmpfile | grep -Ff "$users_file" |tr "\n" ","| sed s%,$%%)"
 
 	if [ "$user_list" ] ; then
-	        tfile="$(tempfile)"
-		echo "$user_list" |tr " " "\n" |sed -e "s%^%dn: cn=%;s%$%,$S4_USER_DN%;achangetype: modify\nreplace: primarygroupid\nprimarygroupid: $ausiasprimaryid\n" > "$tfile"
-		ldbmodify --url=/var/lib/samba/private/sam.ldb -b $S4_BASE_DN $tfile >/dev/null || rc=2
-	        rm -f "$tfile"
-
+#	        tfile="$(tempfile)"
+#		echo "$user_list" |tr " " "\n" |sed -e "s%^%dn: cn=%;s%$%,$S4_USER_DN%;achangetype: modify\nreplace: primarygroupid\nprimarygroupid: $ausiasprimaryid\n" > "$tfile"
+#		ldbmodify --url=/var/lib/samba/private/sam.ldb -b $S4_BASE_DN $tfile >/dev/null || rc=2
+#	        rm -f "$tfile"
 
 		samba-tool group addmembers "$group_name" "$user_list" || rc=$?
 	else
