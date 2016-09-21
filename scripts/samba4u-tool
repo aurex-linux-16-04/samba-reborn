@@ -291,7 +291,9 @@ group_list | while read g; do
 done
 
 # Add users from old ldap to s4
-samba-tool domain passwordsettings set --complexity=off --history-length=0
+samba-tool domain passwordsettings set --complexity=off --history-length=0 --min-pwd-age=0 --max-pwd-age=0
+#samba-tool domain passwordsettings set --min-pwd-length=0
+
 user_list | while read u; do
 	if ! echo "$USERS_BLOCKED" | grep -q ":$u:" ; then
 		rc=0
@@ -304,7 +306,7 @@ user_list | while read u; do
 		fi
 	fi
 done
-samba-tool domain passwordsettings set --complexity=on
+#samba-tool domain passwordsettings set --complexity=on
 
 # Add group members to s4 
 VALID_USERS="$(tempfile)"
