@@ -38,11 +38,6 @@ for f in $GROUPS_LOG $USERS_LOG; do
 	:> $f
 done
 
-die(){
-	echo "$1"
-	exit 1
-}
-
 gen_random_number(){
 	printf "%03d" $(($RANDOM % 1000))
 }
@@ -273,33 +268,8 @@ s4add_members(){
 	return $rc
 }
 
-update_teachers(){
-	[ "$TEACHERS_CSV" ] || return 1
-	:> "$TEACHERS_CSV"
-	ssh root@fsserver /home/depinf/ausias-user-manager/remote-csv-teachers > "$TEACHERS_CSV" || return 1
-	[ -s "$TEACHERS_CSV" ] || return 1
-}
-update_students(){
-	[ "$STUDENTS_CSV" ] || return 1
-	:> "$STUDENTS_CSV"
-	ssh root@fsserver /home/depinf/ausias-user-manager/remote-csv-students > "$STUDENTS_CSV" || return 1
-	[ -s "$STUDENTS_CSV" ] || return 1
-}
-
-update_ldif(){
-	[ "$LDIF_FILE" ] || return 1
-	:> "$LDIF_FILE"
-	ssh root@fsserver /home/depinf/ausias-user-manager/remote-slapcat > "$LDIF_FILE" || return 1
-	[ -s "$LDIF_FILE" ] || return 1
-}
 
 # main program
-
-[ $(id -u ) -eq 0 ] || die "You must be root"
-[ "$HOME" ] || export HOME="/root"
-update_teachers || die "Error updating teachers csv"
-update_students || die "Error updating teachers csv"
-update_ldif || die "Error updating teachers csv"
 
 # get primary group for windows users
 # Warning!!: group "ausias users" must exists (just for windows, not linux) before running this script!!!!
@@ -307,59 +277,16 @@ ausiasgid="$(wbinfo --group-info "ausias users" |cut -f 3 -d :)"
 ausiasprimaryid="$(wbinfo --gid-to-sid "$ausiasgid" |cut -d "-" -f 8)"
 
 # Add groups old ldap groups to s4
-group_list | while read g; do
-	if ! echo "$GROUPS_BLOCKED" | grep -q ":$g:" ; then
-		rc=0
-		s4group_add "$g"  || rc=$?
-		if [ $rc -eq 0 ] ; then
-			echo "Group $g: added"
-			echo "$g" >> $GROUPS_LOG
-		else
-			echo "==> ERROR adding group: $g ($rc)" >&2
-		fi
-	fi
-done
 
 # Add users from old ldap to s4
-samba-tool domain passwordsettings set --complexity=off --history-length=0 --min-pwd-age=0 --max-pwd-age=0
-#samba-tool domain passwordsettings set --min-pwd-length=0
-
 user_list | while read u; do
-	if ! echo "$USERS_BLOCKED" | grep -q ":$u:" ; then
-		rc=0
-		s4user_add "$u" || rc=$?
-		if [ $rc -eq 0 ] ; then
-			echo "User $u: added"
-			echo "$u" >> $USERS_LOG
-		else
-			echo "==> ERROR adding user: $u ($rc)" >&2
-		fi
-	fi
+	samba-tool user delete "$u"
 done
-#samba-tool domain passwordsettings set --complexity=on
-
-# Add group members to s4 
-VALID_USERS="$(tempfile)"
-wbinfo -u  |sed -e "s%^.*\\\%%" > "$VALID_USERS"
 
 group_list | while read g; do
-	if ! echo "$GROUPS_BLOCKED" | grep -q ":$g:" ; then
-		rc=0
-		s4add_members "$g" "$VALID_USERS" || rc=$?
-		case "$rc" in
-			1)
-				echo "No members for $g"
-				;;
-			0)
-				echo "Members of $g: added"
-				;;
-			*)
-				echo "==> ERROR adding members of group: $g ($rc)" >&2
-		esac
-	fi
+	samba-tool group delete "$g"
 done
-rm -f "$VALID_USERS"
-echo "Import finished at $(date -R)"
+
 # clean
 # find users not added in this run and remove them ¿?
 # find groups not added in this run and remove them ¿?
