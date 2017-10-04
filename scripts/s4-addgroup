@@ -1,0 +1,52 @@
+#!/bin/sh
+
+s4group_add(){
+	group_name="$1"
+	rc=0
+	samba-tool group add "$group_name" 2>/dev/null || rc=$?
+	if [ $rc -ne 255 ] && [ $rc -ne 0 ]; then
+		return 1
+	fi
+	rc=0
+	gid="$(wbinfo --group-info "$group_name" |cut -d : -f 3)"
+	[ "$gid" ] || return 2
+	if ! ldbsearch -H "/var/lib/samba/private/sam.ldb" --controls "search_options:0:1" -b $S4_BASE_DN "cn=$group_name" gidNumber | grep -q "^gidNumber:" ; then
+		group_dn="$(ldbsearch -H "/var/lib/samba/private/sam.ldb" -b $S4_BASE_DN "(&(cn=$group_name)(objectclass=group))" dn |sed -ne "/^dn:/s%^dn: %%p")"
+		tmpfile="$(tempfile)"
+		cat << EOF > $tmpfile
+dn: $group_dn
+changetype: modify
+add:objectclass
+objectclass: posixGroup
+-
+add:gidnumber
+gidnumber: ${gid}
+EOF
+		ldbmodify --url=/var/lib/samba/private/sam.ldb $tmpfile >/dev/null || rc=$?
+		rm -f "$tmpfile"
+	fi
+	return $rc
+}
+
+die(){
+        echo "$1"
+        exit 1
+}
+
+usage(){
+	die "Usage: $(basename "$0") GROUP_NAME"
+}
+
+# main
+
+# search for configuration file
+CFG_FILE="samba4u.cfg"
+
+[ -r "$CFG_FILE" ] || die "Missing confguratin file $CFG_FILE"
+. "./$CFG_FILE"
+
+
+[ "$1" ] || usage
+s4group_add "$1" || die "Error creating group \"$1\""
+echo "Group \"$1\" created successfully"
+exit 0
