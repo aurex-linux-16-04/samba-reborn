@@ -362,4 +362,11 @@ rm -f "$VALID_USERS"
 echo "Import finished at $(date -R)"
 # clean
 # find users not added in this run and remove them ¿?
+# ok, but only for students
+echo "Eliminando alumnos no importados"
+getent group alumnos |cut -d : -f 4 |tr "," "\n" |while read u; do 
+	grep -qFx "$u" $USERS_LOG || samba-tool user delete "$u" || true
+done
+rm -f "$USERS_LOG"
+rm -f "$GROUPS_LOG"
 # find groups not added in this run and remove them ¿?
